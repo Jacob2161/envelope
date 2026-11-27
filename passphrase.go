@@ -47,18 +47,28 @@ var ErrWrongPassphrase = errors.New("wrong passphrase, or the passphrase documen
 // passphrase. It marshals to JSON. Every field but Created is bound into the
 // ciphertext, so changing one makes the document fail to open.
 type PassphraseDocument struct {
-	Format    int    `json:"format"`
-	KDF       string `json:"kdf"`
-	Passes    uint32 `json:"passes"`
+	// Format is the document version, PassphraseFormat.
+	Format int `json:"format"`
+	// KDF names the key derivation, PassphraseKDF.
+	KDF string `json:"kdf"`
+	// Passes is the Argon2id passes over memory.
+	Passes uint32 `json:"passes"`
+	// MemoryKiB is the Argon2id memory, in KiB.
 	MemoryKiB uint32 `json:"memory_kib"`
-	Lanes     uint8  `json:"lanes"`
-	Salt      []byte `json:"salt"`
-	Nonce     []byte `json:"nonce"`
-	Wrapped   []byte `json:"wrapped"`
+	// Lanes is the Argon2id parallelism.
+	Lanes uint8 `json:"lanes"`
+	// Salt is the random Argon2id salt, 16 bytes.
+	Salt []byte `json:"salt"`
+	// Nonce is the AES-256-GCM nonce the KEK was sealed with, 12 bytes.
+	Nonce []byte `json:"nonce"`
+	// Wrapped is the sealed KEK and its tag.
+	Wrapped []byte `json:"wrapped"`
 	// Context names what the KEK belongs to, such as an installation ID.
 	Context string `json:"context"`
 	// KEKID is the wrapped KEK's ID.
-	KEKID   string    `json:"kek_id"`
+	KEKID string `json:"kek_id"`
+	// Created is when the document was written, in UTC. It is not bound
+	// into the ciphertext.
 	Created time.Time `json:"created"`
 }
 
@@ -93,7 +103,11 @@ func (f Format) WrapWithPassphrase(args *WrapWithPassphraseArgs) (*PassphraseDoc
 	case args.Passphrase == "":
 		return nil, errors.New("no passphrase")
 	case len(args.KEKID) > maximumKEKIDBytes || len(args.Context) > maximumContextBytes:
-		return nil, fmt.Errorf("a KEK ID is at most %d bytes and a context %d", maximumKEKIDBytes, maximumContextBytes)
+		return nil, fmt.Errorf(
+			"a KEK ID is at most %d bytes and a context %d",
+			maximumKEKIDBytes,
+			maximumContextBytes,
+		)
 	}
 	document := &PassphraseDocument{
 		Format:    PassphraseFormat,
@@ -117,7 +131,12 @@ func (f Format) WrapWithPassphrase(args *WrapWithPassphraseArgs) (*PassphraseDoc
 	if err != nil {
 		return nil, err
 	}
-	document.Wrapped = aead.Seal(nil, document.Nonce, args.KEK, f.passphraseAssociatedData(document))
+	document.Wrapped = aead.Seal(
+		nil,
+		document.Nonce,
+		args.KEK,
+		f.passphraseAssociatedData(document),
+	)
 	return document, nil
 }
 
@@ -125,7 +144,10 @@ func (f Format) WrapWithPassphrase(args *WrapWithPassphraseArgs) (*PassphraseDoc
 // changed document is ErrWrongPassphrase. Sizes are checked before any key is
 // derived, and the derivation is bounded to 256 MiB and 16 passes, four and
 // five times what new documents use, so a hostile document costs seconds.
-func (f Format) UnwrapWithPassphrase(document *PassphraseDocument, passphrase string) ([]byte, error) {
+func (f Format) UnwrapWithPassphrase(
+	document *PassphraseDocument,
+	passphrase string,
+) ([]byte, error) {
 	if err := f.validate(); err != nil {
 		return nil, err
 	}
@@ -133,7 +155,11 @@ func (f Format) UnwrapWithPassphrase(document *PassphraseDocument, passphrase st
 	case document == nil:
 		return nil, errors.New("no passphrase document")
 	case document.Format != PassphraseFormat:
-		return nil, fmt.Errorf("%w: passphrase document format %d", ErrUnsupportedVersion, document.Format)
+		return nil, fmt.Errorf(
+			"%w: passphrase document format %d",
+			ErrUnsupportedVersion,
+			document.Format,
+		)
 	case document.KDF != PassphraseKDF:
 		return nil, fmt.Errorf("unknown key derivation %q", document.KDF)
 	case document.Passes == 0 || document.Passes > maximumPassphrasePasses ||
@@ -149,7 +175,12 @@ func (f Format) UnwrapWithPassphrase(document *PassphraseDocument, passphrase st
 	if err != nil {
 		return nil, err
 	}
-	kek, err := aead.Open(nil, document.Nonce, document.Wrapped, f.passphraseAssociatedData(document))
+	kek, err := aead.Open(
+		nil,
+		document.Nonce,
+		document.Wrapped,
+		f.passphraseAssociatedData(document),
+	)
 	if err != nil || len(kek) != KeyBytes {
 		return nil, ErrWrongPassphrase
 	}

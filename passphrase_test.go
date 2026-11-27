@@ -13,7 +13,8 @@ import (
 // whose bound fields changed, and one opened under another Format.
 func TestPassphraseRoundTrip(t *testing.T) {
 	key := bytes.Repeat([]byte{9}, KeyBytes)
-	if _, err := testFormat.WrapWithPassphrase(&WrapWithPassphraseArgs{KEK: key, KEKID: "local-1"}); err == nil {
+	_, err := testFormat.WrapWithPassphrase(&WrapWithPassphraseArgs{KEK: key, KEKID: "local-1"})
+	if err == nil {
 		t.Fatal("an empty passphrase was accepted")
 	}
 	document, err := testFormat.WrapWithPassphrase(&WrapWithPassphraseArgs{
@@ -38,25 +39,24 @@ func TestPassphraseRoundTrip(t *testing.T) {
 	if err != nil || !bytes.Equal(opened, key) {
 		t.Fatalf("unwrap: %v", err)
 	}
-	if _, err := testFormat.UnwrapWithPassphrase(parsed, "correct horse battery stable"); !errors.Is(
-		err,
-		ErrWrongPassphrase,
-	) {
+	_, err = testFormat.UnwrapWithPassphrase(parsed, "correct horse battery stable")
+	if !errors.Is(err, ErrWrongPassphrase) {
 		t.Fatalf("a wrong passphrase: %v", err)
 	}
 	parsed.Context = "another"
-	if _, err := testFormat.UnwrapWithPassphrase(parsed, "correct horse battery staple"); !errors.Is(
-		err,
-		ErrWrongPassphrase,
-	) {
+	_, err = testFormat.UnwrapWithPassphrase(parsed, "correct horse battery staple")
+	if !errors.Is(err, ErrWrongPassphrase) {
 		t.Fatalf("a changed context: %v", err)
 	}
 	parsed.Context = "installation"
-	if _, err := (Format{Magic: "TEST", Label: "another application"}).UnwrapWithPassphrase(parsed, "correct horse battery staple"); !errors.Is(err, ErrWrongPassphrase) {
+	foreignFormat := Format{Magic: "TEST", Label: "another application"}
+	_, err = foreignFormat.UnwrapWithPassphrase(parsed, "correct horse battery staple")
+	if !errors.Is(err, ErrWrongPassphrase) {
 		t.Fatalf("another label: %v", err)
 	}
 	parsed.MemoryKiB = 1 << 30
-	if _, err := testFormat.UnwrapWithPassphrase(parsed, "correct horse battery staple"); err == nil {
+	_, err = testFormat.UnwrapWithPassphrase(parsed, "correct horse battery staple")
+	if err == nil {
 		t.Fatal("an out-of-range memory cost was accepted")
 	}
 }

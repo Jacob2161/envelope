@@ -30,12 +30,15 @@ func encrypt(t *testing.T, key []byte, plaintext []byte) []byte {
 
 // decrypt opens an object with the test key.
 func decrypt(key []byte, object []byte) ([]byte, error) {
-	reader, err := testFormat.NewReader(bytes.NewReader(object), func(keyID string) ([]byte, error) {
-		if keyID != "key-1" {
-			return nil, ErrUnknownKey
-		}
-		return key, nil
-	})
+	reader, err := testFormat.NewReader(
+		bytes.NewReader(object),
+		func(keyID string) ([]byte, error) {
+			if keyID != "key-1" {
+				return nil, ErrUnknownKey
+			}
+			return key, nil
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +187,9 @@ func TestFormatSeparation(t *testing.T) {
 	if !errors.Is(err, ErrDecrypt) {
 		t.Fatalf("an object opened under another label: %v", err)
 	}
-	if _, err := (Format{Magic: "OTHR", Label: testFormat.Label}).NewReader(bytes.NewReader(object), lookup); !errors.Is(err, ErrDecrypt) {
+	foreignMagicFormat := Format{Magic: "OTHR", Label: testFormat.Label}
+	_, err = foreignMagicFormat.NewReader(bytes.NewReader(object), lookup)
+	if !errors.Is(err, ErrDecrypt) {
 		t.Fatalf("an object opened under another magic: %v", err)
 	}
 	first, err := testFormat.NewLocalKEK(key)
@@ -328,7 +333,10 @@ func TestFrameIndexNeverRepeats(t *testing.T) {
 	}
 	// The forged frame needs the forger's own header, whose salt keys it.
 	forgedObject := append(append([]byte(nil), forged.header...), sealed.Bytes()...)
-	reader, err := testFormat.NewReader(bytes.NewReader(forgedObject), func(string) ([]byte, error) { return key, nil })
+	reader, err := testFormat.NewReader(
+		bytes.NewReader(forgedObject),
+		func(string) ([]byte, error) { return key, nil },
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +360,8 @@ func TestPassphraseDocumentBounds(t *testing.T) {
 	}
 	oversized := *document
 	oversized.Wrapped = make([]byte, 1<<20)
-	if _, err := testFormat.UnwrapWithPassphrase(&oversized, "a passphrase"); !errors.Is(err, ErrWrongPassphrase) {
+	_, err = testFormat.UnwrapWithPassphrase(&oversized, "a passphrase")
+	if !errors.Is(err, ErrWrongPassphrase) {
 		t.Fatalf("a 1 MiB wrapped key: %v", err)
 	}
 	if _, err := testFormat.WrapWithPassphrase(&WrapWithPassphraseArgs{
