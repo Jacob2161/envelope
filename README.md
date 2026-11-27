@@ -58,6 +58,9 @@ frame  = u32 ciphertext_length ciphertext
 - An object holds at most 2^32 frames (about 4 PiB), so no nonce repeats.
 - Passphrase documents are bounded (16 KiB, exact salt and key sizes, at most
   256 MiB and 16 Argon2id passes) before any key is derived.
+
+[DESIGN.md](DESIGN.md) explains the key layers, the frame format, and why
+each choice was made.
 - `KeyWrapper` is the seam for a KMS or Vault Transit; `LocalKEK` keeps the
   KEK in memory. `PassphraseDocument` recovers a KEK from a passphrase with
   Argon2id; passphrase policy is yours.
