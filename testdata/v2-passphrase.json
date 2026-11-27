@@ -1,0 +1,13 @@
+{
+  "format": 2,
+  "kdf": "argon2id",
+  "passes": 3,
+  "memory_kib": 65536,
+  "lanes": 4,
+  "salt": "mU59C9BjFd2lUALyXpg+oQ==",
+  "nonce": "X22ClRuysBo5Tih/",
+  "wrapped": "8U6dXlcP180tSEpIxAUyLMFsBQ1olKNZr6aKWPBQgKISaxxeNgrv0YVFCMwNBa3U",
+  "context": "golden installation",
+  "kek_id": "local-5ee3a9035584660c",
+  "created": "2026-11-27T00:00:00Z"
+}
