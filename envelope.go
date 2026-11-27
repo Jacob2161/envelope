@@ -284,12 +284,13 @@ func (f Format) NewReader(source io.Reader, lookup KeyLookup) (*Reader, error) {
 	buffered := bufio.NewReaderSize(source, 64<<10)
 	prefix := make([]byte, prefixBytes, prefixBytes+MaximumKeyIDBytes+SaltBytes)
 	if _, err := io.ReadFull(buffered, prefix); err != nil {
-		return nil, fmt.Errorf("%w: short header", ErrDecrypt)
+		return nil, readFailure(err, "the header")
 	}
 	if string(prefix[:4]) != f.Magic {
 		return nil, fmt.Errorf("%w: not an object of this format", ErrDecrypt)
 	}
-	if formatVersion := binary.BigEndian.Uint16(prefix[4:6]); formatVersion != FormatVersion {
+	formatVersion := binary.BigEndian.Uint16(prefix[4:6])
+	if formatVersion != FormatVersion {
 		return nil, fmt.Errorf("%w: %d", ErrUnsupportedVersion, formatVersion)
 	}
 	keyIDLength := int(binary.BigEndian.Uint16(prefix[6:8]))
@@ -298,7 +299,7 @@ func (f Format) NewReader(source io.Reader, lookup KeyLookup) (*Reader, error) {
 	}
 	header := prefix[:prefixBytes+keyIDLength+SaltBytes]
 	if _, err := io.ReadFull(buffered, header[prefixBytes:]); err != nil {
-		return nil, fmt.Errorf("%w: short header", ErrDecrypt)
+		return nil, readFailure(err, "the header")
 	}
 	keyID := string(header[prefixBytes : prefixBytes+keyIDLength])
 	dataKey, err := lookup(keyID)
@@ -321,8 +322,10 @@ func (f Format) NewReader(source io.Reader, lookup KeyLookup) (*Reader, error) {
 // KeyID is the data key ID the object's header names.
 func (r *Reader) KeyID() string { return r.keyID }
 
-// Read returns decrypted plaintext. A damaged object fails with an error
-// wrapping ErrDecrypt, and every later Read returns the same error.
+// Read returns decrypted plaintext. A damaged or truncated object fails with
+// an error wrapping ErrDecrypt; a source that fails to read fails with its
+// own error, which does not wrap ErrDecrypt, since it says nothing about the
+// object. Every later Read returns the same error.
 func (r *Reader) Read(target []byte) (int, error) {
 	for len(r.plain) == 0 {
 		if r.err != nil {
@@ -349,7 +352,7 @@ func (r *Reader) Read(target []byte) (int, error) {
 func (r *Reader) openFrame() error {
 	var prefix [4]byte
 	if _, err := io.ReadFull(r.source, prefix[:]); err != nil {
-		return fmt.Errorf("%w: truncated before frame %d", ErrDecrypt, r.frame)
+		return readFailure(err, fmt.Sprintf("frame %d", r.frame))
 	}
 	length := int(binary.BigEndian.Uint32(prefix[:]))
 	if length < tagBytes || length > FrameBytes+tagBytes {
@@ -361,12 +364,16 @@ func (r *Reader) openFrame() error {
 	}
 	sealed := r.sealed[:length]
 	if _, err := io.ReadFull(r.source, sealed); err != nil {
-		return fmt.Errorf("%w: frame %d truncated", ErrDecrypt, r.frame)
+		return readFailure(err, fmt.Sprintf("frame %d", r.frame))
 	}
 	putFrameNonce(&r.nonce, r.frame)
 	// The last index can only be the final frame's.
 	if length == FrameBytes+tagBytes && r.frame < MaximumFrames-1 {
-		r.associatedData = appendFrameContext(r.associatedData[:len(r.header)], r.frame, false)
+		r.associatedData = appendFrameContext(
+			r.associatedData[:len(r.header)],
+			r.frame,
+			false,
+		)
 		plain, err := r.aead.Open(r.plainBuffer[:0], r.nonce[:], sealed, r.associatedData)
 		if err == nil {
 			r.plain = plain
@@ -384,10 +391,11 @@ func (r *Reader) openFrame() error {
 
 // finish keeps the final frame's plaintext and checks that nothing follows it.
 func (r *Reader) finish(plain []byte) error {
-	if _, err := r.source.Peek(1); err != io.EOF {
-		if err == nil {
-			return fmt.Errorf("%w: data after the final frame", ErrDecrypt)
-		}
+	_, err := r.source.Peek(1)
+	if err == nil {
+		return fmt.Errorf("%w: data after the final frame", ErrDecrypt)
+	}
+	if !errors.Is(err, io.EOF) {
 		return fmt.Errorf("reading after the final frame: %w", err)
 	}
 	r.plain = plain
@@ -396,12 +404,27 @@ func (r *Reader) finish(plain []byte) error {
 	return nil
 }
 
-// KeyWrapper wraps data keys with a KEK. A KMS or Vault Transit client can
-// implement it.
+// readFailure is the error for a read of part (the header, or a frame) that
+// did not complete: ErrDecrypt when the object ended early, since a
+// truncated object is damaged, and otherwise the source's own error, which
+// says nothing about the object.
+func readFailure(err error, part string) error {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return fmt.Errorf("%w: %s is truncated", ErrDecrypt, part)
+	}
+	return fmt.Errorf("reading %s: %w", part, err)
+}
+
+// KeyWrapper wraps data keys with a KEK. LocalKEK implements it; a KMS or
+// Vault Transit client can too, so a caller that stores wrapped keys holds a
+// KeyWrapper rather than a *LocalKEK.
 type KeyWrapper interface {
 	// ID identifies the KEK without revealing it.
 	ID() string
+	// Wrap seals a data key so only this KEK can open it.
 	Wrap(dataKey []byte) ([]byte, error)
+	// Unwrap opens a data key Wrap sealed. A key another KEK wrapped, or a
+	// damaged one, is ErrDecrypt.
 	Unwrap(wrapped []byte) ([]byte, error)
 }
 

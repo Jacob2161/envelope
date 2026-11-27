@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"testing/iotest"
 )
 
 // testFormat is the Format of the tests' own objects.
@@ -201,14 +202,14 @@ func TestFormatSeparation(t *testing.T) {
 	if _, err := second.Unwrap(wrapped); !errors.Is(err, ErrDecrypt) {
 		t.Fatalf("a key wrapped under one label unwrapped under another: %v", err)
 	}
-	otherMagic, err := (Format{Magic: "OTHR", Label: testFormat.Label}).NewLocalKEK(key)
+	foreignMagic, err := (Format{Magic: "OTHR", Label: testFormat.Label}).NewLocalKEK(key)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if otherMagic.ID() == first.ID() {
+	if foreignMagic.ID() == first.ID() {
 		t.Fatal("two Formats with one label share KEK IDs")
 	}
-	if _, err := otherMagic.Unwrap(wrapped); !errors.Is(err, ErrDecrypt) {
+	if _, err := foreignMagic.Unwrap(wrapped); !errors.Is(err, ErrDecrypt) {
 		t.Fatalf("a key wrapped under one magic unwrapped under another: %v", err)
 	}
 	for _, format := range []Format{{Magic: "ABC", Label: "x"}, {Magic: "ABCD"}} {
@@ -359,5 +360,42 @@ func TestPassphraseDocumentBounds(t *testing.T) {
 		Context: string(make([]byte, 2<<10)),
 	}); err == nil {
 		t.Fatal("a 2 KiB context was accepted")
+	}
+}
+
+// errConnectionReset stands for a source that fails partway, as a network
+// read does.
+var errConnectionReset = errors.New("connection reset by peer")
+
+// TestSourceFailureIsNotDamage checks that a source that fails to read, in
+// the header or in a frame, fails with its own error and not ErrDecrypt, so
+// a caller does not mistake a dropped connection for a damaged object, while
+// an object that ends early is still ErrDecrypt.
+func TestSourceFailureIsNotDamage(t *testing.T) {
+	key, err := NewDataKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	object := encrypt(t, key, bytes.Repeat([]byte("x"), FrameBytes+10))
+	lookup := func(string) ([]byte, error) { return key, nil }
+	for name, cut := range map[string]int{
+		"in the header":      3,
+		"in the first frame": prefixBytes + len("key-1") + SaltBytes + 100,
+	} {
+		source := io.MultiReader(
+			bytes.NewReader(object[:cut]),
+			iotest.ErrReader(errConnectionReset),
+		)
+		reader, err := testFormat.NewReader(source, lookup)
+		if err == nil {
+			_, err = io.ReadAll(reader)
+		}
+		if !errors.Is(err, errConnectionReset) || errors.Is(err, ErrDecrypt) {
+			t.Errorf("a source failing %s: %v, want the source's error alone", name, err)
+		}
+		_, err = decrypt(key, object[:cut])
+		if !errors.Is(err, ErrDecrypt) {
+			t.Errorf("an object ending %s: %v, want ErrDecrypt", name, err)
+		}
 	}
 }
