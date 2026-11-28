@@ -2,7 +2,8 @@ package envelope
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"errors"
 	"io"
 	"os"
@@ -189,7 +190,7 @@ func TestGoldenPassphraseDocument(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		encoded, err := json.MarshalIndent(document, "", "  ")
+		encoded, err := json.Marshal(document, jsontext.WithIndent("  "))
 		if err != nil {
 			t.Fatal(err)
 		}

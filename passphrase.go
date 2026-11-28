@@ -5,7 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/binary"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"time"
