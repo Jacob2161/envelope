@@ -8,7 +8,8 @@ change the API; each such change says what callers must do.
 - A source that fails to read, in the header or a frame, now fails with
   its own error instead of `ErrDecrypt`, so a dropped connection is no
   longer reported as a damaged object. An object that ends early is still
-  `ErrDecrypt`. A caller that treated every `ErrDecrypt` as damage needs no
+  `ErrDecrypt`, including a source that fails with `io.ErrUnexpectedEOF`, as a
+  truncated HTTP body does. A caller that treated every `ErrDecrypt` as damage needs no
   change; one that relied on read failures wrapping `ErrDecrypt` should
   check for the source's error.
 - `KeyWrapper`'s methods and every `PassphraseDocument` field have doc

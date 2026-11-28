@@ -281,7 +281,7 @@ func (f Format) NewReader(source io.Reader, lookup KeyLookup) (*Reader, error) {
 	if err := f.validate(); err != nil {
 		return nil, err
 	}
-	buffered := bufio.NewReaderSize(source, 64<<10)
+	buffered := bufio.NewReaderSize(sourceReader{source: source}, 64<<10)
 	prefix := make([]byte, prefixBytes, prefixBytes+MaximumKeyIDBytes+SaltBytes)
 	if _, err := io.ReadFull(buffered, prefix); err != nil {
 		return nil, readFailure(err, "the header")
@@ -409,11 +409,42 @@ func (r *Reader) finish(plain []byte) error {
 // truncated object is damaged, and otherwise the source's own error, which
 // says nothing about the object.
 func readFailure(err error, part string) error {
+	failed, fromSource := errors.AsType[*sourceError](err)
+	if fromSource {
+		return fmt.Errorf("reading %s: %w", part, failed.err)
+	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return fmt.Errorf("%w: %s is truncated", ErrDecrypt, part)
 	}
 	return fmt.Errorf("reading %s: %w", part, err)
 }
+
+// sourceReader marks every error of the source but its end as the
+// source's, so a transport that fails with io.ErrUnexpectedEOF, as a
+// truncated HTTP body does, is not taken for an object that ended early.
+type sourceReader struct {
+	source io.Reader
+}
+
+// Read reads from the source, wrapping a failure in sourceError.
+func (r sourceReader) Read(buffer []byte) (int, error) {
+	read, err := r.source.Read(buffer)
+	if err != nil && err != io.EOF {
+		err = &sourceError{err: err}
+	}
+	return read, err
+}
+
+// sourceError is a failure of the source itself, not of the object.
+type sourceError struct {
+	err error
+}
+
+// Error returns the source's error text.
+func (e *sourceError) Error() string { return e.err.Error() }
+
+// Unwrap returns the source's error.
+func (e *sourceError) Unwrap() error { return e.err }
 
 // KeyWrapper wraps data keys with a KEK. LocalKEK implements it; a KMS or
 // Vault Transit client can too, so a caller that stores wrapped keys holds a

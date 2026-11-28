@@ -391,16 +391,25 @@ func TestSourceFailureIsNotDamage(t *testing.T) {
 		"in the header":      3,
 		"in the first frame": prefixBytes + len("key-1") + SaltBytes + 100,
 	} {
-		source := io.MultiReader(
-			bytes.NewReader(object[:cut]),
-			iotest.ErrReader(errConnectionReset),
-		)
-		reader, err := testFormat.NewReader(source, lookup)
-		if err == nil {
-			_, err = io.ReadAll(reader)
-		}
-		if !errors.Is(err, errConnectionReset) || errors.Is(err, ErrDecrypt) {
-			t.Errorf("a source failing %s: %v, want the source's error alone", name, err)
+		// io.ErrUnexpectedEOF is what a truncated HTTP body returns when its
+		// connection closes before the Content-Length.
+		for _, failure := range []error{errConnectionReset, io.ErrUnexpectedEOF} {
+			source := io.MultiReader(
+				bytes.NewReader(object[:cut]),
+				iotest.ErrReader(failure),
+			)
+			reader, err := testFormat.NewReader(source, lookup)
+			if err == nil {
+				_, err = io.ReadAll(reader)
+			}
+			if !errors.Is(err, failure) || errors.Is(err, ErrDecrypt) {
+				t.Errorf(
+					"a source failing %s with %v: %v, want the source's error alone",
+					name,
+					failure,
+					err,
+				)
+			}
 		}
 		_, err = decrypt(key, object[:cut])
 		if !errors.Is(err, ErrDecrypt) {
