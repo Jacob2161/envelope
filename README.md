@@ -69,4 +69,4 @@ each choice was made.
 The golden objects in `testdata` are checked in and must open unchanged in
 every later version.
 
-Tested on the two newest Go releases. Licensed under the MIT license.
+Requires Go 1.27. Licensed under the MIT license.
